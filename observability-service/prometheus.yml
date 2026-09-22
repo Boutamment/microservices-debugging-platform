@@ -1,0 +1,79 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'platform-dev'
+
+rule_files:
+  - "alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+scrape_configs:
+  - job_name: 'api-gateway'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['api-gateway:8080']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: application
+        replacement: api-gateway
+
+  - job_name: 'auth-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['auth-service:8081']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: application
+        replacement: auth-service
+
+  - job_name: 'order-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['order-service:8082']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: application
+        replacement: order-service
+
+  - job_name: 'payment-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['payment-service:8083']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: application
+        replacement: payment-service
+
+  - job_name: 'inventory-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['inventory-service:8084']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: application
+        replacement: inventory-service
+
+  - job_name: 'intelligence-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['intelligence-service:8086']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: application
+        replacement: intelligence-service
+
+  # Scrape OTel Collector's own metrics
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8889']
+
+  # Kafka metrics via JMX exporter (optional)
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9308']
+    honor_labels: true

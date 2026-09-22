@@ -1,0 +1,20 @@
+<project>
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.boutamment.platform</groupId>
+    <artifactId>microservices-debugging-platform</artifactId>
+    <version>1.0.0</version>
+
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>auth-service</module>
+        <module>api-gateway</module>
+        <module>inventory-service</module>
+        <module>payment-service</module>
+        <module>notification-service</module>
+        <module>order-service</module>
+        <module>intelligence-service</module>
+        <module>observability-service</module>
+    </modules>
+</project>

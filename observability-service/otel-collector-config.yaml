@@ -1,0 +1,57 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+  resource:
+    attributes:
+      - action: insert
+        key: environment
+        value: development
+
+exporters:
+  # Send traces to Jaeger
+  otlp/jaeger:
+    endpoint: jaeger:14250
+    tls:
+      insecure: true
+
+  # Send metrics to Prometheus (pull model)
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: platform
+
+  # Log everything for debugging
+  logging:
+    verbosity: detailed
+
+  # Send logs to Elasticsearch via OTLP
+  otlphttp/elasticsearch:
+    endpoint: http://elasticsearch:9200
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [otlp/jaeger, logging]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [logging]

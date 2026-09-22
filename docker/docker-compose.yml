@@ -1,0 +1,297 @@
+version: "3.9"
+
+# ─── Networks ─────────────────────────────────────────────────────────────────
+networks:
+  platform-net:
+    driver: bridge
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  prometheus-data:
+  grafana-data:
+  elasticsearch-data:
+  kafka-data:
+  zookeeper-data:
+
+services:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # INFRASTRUCTURE
+  # ════════════════════════════════════════════════════════════════════════════
+
+  # ── Service Discovery ────────────────────────────────────────────────────────
+  eureka-server:
+    image: steeltoeoss/eureka-server:latest
+    container_name: eureka
+    ports:
+      - "8761:8761"
+    networks: [platform-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Kafka + Zookeeper ─────────────────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+    networks: [platform-net]
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks: [platform-net]
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:29092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # Create Kafka topics on startup
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic order-events --partitions 3 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment-events --partitions 3 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic anomaly-events --partitions 3 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic rca-events --partitions 1 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic insight-events --partitions 1 --replication-factor 1 &&
+        echo '✅ All Kafka topics created'
+      "
+    networks: [platform-net]
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # OBSERVABILITY STACK
+  # ════════════════════════════════════════════════════════════════════════════
+
+  # ── OpenTelemetry Collector ───────────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.98.0
+    container_name: otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otelcol/config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    depends_on:
+      - jaeger
+      - prometheus
+    networks: [platform-net]
+
+  # ── Jaeger (Distributed Tracing) ─────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.56
+    container_name: jaeger
+    ports:
+      - "16686:16686"  # UI
+      - "14268:14268"  # HTTP collector
+      - "14250:14250"  # gRPC
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks: [platform-net]
+
+  # ── Prometheus ────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [platform-net]
+
+  # ── Grafana ───────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana-dashboards:/etc/grafana/provisioning/dashboards
+      - ./observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+      - jaeger
+    networks: [platform-net]
+
+  # ── ELK Stack ─────────────────────────────────────────────────────────────────
+  elasticsearch:
+    image: elasticsearch:8.13.0
+    container_name: elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks: [platform-net]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  logstash:
+    image: logstash:8.13.0
+    container_name: logstash
+    volumes:
+      - ./observability/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks: [platform-net]
+
+  kibana:
+    image: kibana:8.13.0
+    container_name: kibana
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks: [platform-net]
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # MICROSERVICES
+  # ════════════════════════════════════════════════════════════════════════════
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      EUREKA_HOST: eureka-server
+      OTEL_COLLECTOR_HOST: otel-collector
+      JWT_SECRET: ${JWT_SECRET:-mySecretKeyForDevOnlyChangeInProd1234567890}
+    depends_on:
+      - eureka-server
+      - otel-collector
+    networks: [platform-net]
+    restart: on-failure
+
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
+    environment:
+      EUREKA_HOST: eureka-server
+      OTEL_COLLECTOR_HOST: otel-collector
+      JWT_SECRET: ${JWT_SECRET:-mySecretKeyForDevOnlyChangeInProd1234567890}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks: [platform-net]
+    restart: on-failure
+
+  order-service:
+    build: ./order-service
+    container_name: order-service
+    environment:
+      EUREKA_HOST: eureka-server
+      KAFKA_BOOTSTRAP: kafka:29092
+      OTEL_COLLECTOR_HOST: otel-collector
+    depends_on:
+      kafka:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    networks: [platform-net]
+    restart: on-failure
+
+  payment-service:
+    build: ./payment-service
+    container_name: payment-service
+    environment:
+      EUREKA_HOST: eureka-server
+      KAFKA_BOOTSTRAP: kafka:29092
+      OTEL_COLLECTOR_HOST: otel-collector
+    depends_on:
+      kafka:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    networks: [platform-net]
+    restart: on-failure
+
+  inventory-service:
+    build: ./inventory-service
+    container_name: inventory-service
+    environment:
+      EUREKA_HOST: eureka-server
+      OTEL_COLLECTOR_HOST: otel-collector
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    networks: [platform-net]
+    restart: on-failure
+
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service
+    environment:
+      EUREKA_HOST: eureka-server
+      KAFKA_BOOTSTRAP: kafka:29092
+      OTEL_COLLECTOR_HOST: otel-collector
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks: [platform-net]
+    restart: on-failure
+
+  intelligence-service:
+    build: ./intelligence-service
+    container_name: intelligence-service
+    environment:
+      EUREKA_HOST: eureka-server
+      KAFKA_BOOTSTRAP: kafka:29092
+      PROMETHEUS_HOST: prometheus
+      JAEGER_HOST: jaeger
+      OTEL_COLLECTOR_HOST: otel-collector
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-your-key-here}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+      jaeger:
+        condition: service_started
+    networks: [platform-net]
+    restart: on-failure
