@@ -4,27 +4,15 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Repository;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
+import jakarta.annotation.PostConstruct;
 
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-// ─── Main ────────────────────────────────────────────────────────────────────
-@SpringBootApplication
-@EnableDiscoveryClient
-class InventoryApplication {
-    public static void main(String[] args) {
-        SpringApplication.run(InventoryApplication.class, args);
-    }
-}
 
 // ─── Entity ──────────────────────────────────────────────────────────────────
 @Entity
@@ -61,10 +49,10 @@ class Reservation {
 }
 
 // ─── Repositories ─────────────────────────────────────────────────────────────
-@Repository
+
 interface InventoryRepository extends JpaRepository<InventoryItem, String> {}
 
-@Repository
+
 interface ReservationRepository extends JpaRepository<Reservation, UUID> {}
 
 // ─── Service ─────────────────────────────────────────────────────────────────
@@ -80,6 +68,19 @@ class InventoryService {
     // Simulate slow DB (toggled via /simulate/slow endpoint)
     private final AtomicBoolean slowModeEnabled = new AtomicBoolean(false);
     private int slowDelayMs = 2000;
+
+    @PostConstruct
+    void seedDemoInventory() {
+        if (!inventoryRepo.existsById("PROD-1")) {
+            inventoryRepo.save(InventoryItem.builder()
+                .productId("PROD-1")
+                .name("Demo Product")
+                .stock(100)
+                .reserved(0)
+                .build());
+            log.info("Seeded demo inventory product PROD-1 with 100 units");
+        }
+    }
 
     public Map<String, Object> checkStock(String productId, int quantity) throws InterruptedException {
         // KEY failure simulation — this is the bottleneck the intelligence layer will detect

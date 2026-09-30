@@ -22,6 +22,7 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/auth")
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class AuthController {
 

@@ -7,6 +7,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.time.Instant;
 import java.util.*;
@@ -62,30 +63,57 @@ public class AnomalyDetectionEngine {
     }
 
     private void queryPrometheus(String promQL, String service, String metricName) {
-        String prometheusUrl = System.getenv().getOrDefault("PROMETHEUS_URL", "http://localhost:9090");
+    String prometheusUrl = System.getenv()
+        .getOrDefault("PROMETHEUS_URL", "http://localhost:9090");
 
-        webClientBuilder.build()
-            .get()
-            .uri(prometheusUrl + "/api/v1/query?query=" + promQL)
-            .retrieve()
-            .bodyToMono(PrometheusResponse.class)
-            .subscribe(response -> {
-                if (response == null || response.data() == null || response.data().result() == null || response.data().result().isEmpty()) {
+    webClientBuilder.build()
+        .get()
+        .uri(UriComponentsBuilder.fromUriString(prometheusUrl)
+            .path("/api/v1/query")
+            .queryParam("query", promQL)
+            .build(false)
+            .encode()
+            .toUri())
+        .retrieve()
+        .bodyToMono(PrometheusResponse.class)
+        .subscribe(
+            response -> {
+                if (response == null
+                        || response.data() == null
+                        || response.data().result() == null
+                        || response.data().result().isEmpty()) {
                     return;
                 }
 
                 Map<String, Object> resultItem = response.data().result().get(0);
                 Object valueEntry = resultItem.get("value");
+
                 if (valueEntry instanceof List<?> valueList && valueList.size() >= 2) {
                     Object rawValue = valueList.get(1);
+
                     if (rawValue instanceof Number number) {
-                        evaluateMetric(service, metricName, number.doubleValue());
+                        evaluateMetric(
+                            service,
+                            metricName,
+                            number.doubleValue()
+                        );
                     } else if (rawValue instanceof String str) {
-                        evaluateMetric(service, metricName, Double.parseDouble(str));
+                        evaluateMetric(
+                            service,
+                            metricName,
+                            Double.parseDouble(str)
+                        );
                     }
                 }
-            }, error -> log.debug("Prometheus query failed for {}/{}: {}", service, metricName, error.getMessage()));
-    }
+            },
+            error -> log.debug(
+                "Prometheus query failed for {}/{}: {}",
+                service,
+                metricName,
+                error.getMessage()
+            )
+        );
+}
 
     private void evaluateMetric(String service, String metricName, double currentValue) {
         metricWindows.computeIfAbsent(service, k -> new ConcurrentHashMap<>())

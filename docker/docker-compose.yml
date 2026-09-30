@@ -81,7 +81,7 @@ services:
         kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic anomaly-events --partitions 3 --replication-factor 1 &&
         kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic rca-events --partitions 1 --replication-factor 1 &&
         kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic insight-events --partitions 1 --replication-factor 1 &&
-        echo '✅ All Kafka topics created'
+        echo ' All Kafka topics created'
       "
     networks: [platform-net]
 
@@ -95,7 +95,7 @@ services:
     container_name: otel-collector
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
-      - ./observability/otel-collector-config.yaml:/etc/otelcol/config.yaml
+      - ../observability-service/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
     ports:
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP
@@ -124,7 +124,7 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=15d'
     volumes:
-      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ../observability-service/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
@@ -189,109 +189,3 @@ services:
         condition: service_healthy
     networks: [platform-net]
 
-  # ════════════════════════════════════════════════════════════════════════════
-  # MICROSERVICES
-  # ════════════════════════════════════════════════════════════════════════════
-
-  api-gateway:
-    build: ./api-gateway
-    container_name: api-gateway
-    ports:
-      - "8080:8080"
-    environment:
-      EUREKA_HOST: eureka-server
-      OTEL_COLLECTOR_HOST: otel-collector
-      JWT_SECRET: ${JWT_SECRET:-mySecretKeyForDevOnlyChangeInProd1234567890}
-    depends_on:
-      - eureka-server
-      - otel-collector
-    networks: [platform-net]
-    restart: on-failure
-
-  auth-service:
-    build: ./auth-service
-    container_name: auth-service
-    environment:
-      EUREKA_HOST: eureka-server
-      OTEL_COLLECTOR_HOST: otel-collector
-      JWT_SECRET: ${JWT_SECRET:-mySecretKeyForDevOnlyChangeInProd1234567890}
-    depends_on:
-      eureka-server:
-        condition: service_healthy
-    networks: [platform-net]
-    restart: on-failure
-
-  order-service:
-    build: ./order-service
-    container_name: order-service
-    environment:
-      EUREKA_HOST: eureka-server
-      KAFKA_BOOTSTRAP: kafka:29092
-      OTEL_COLLECTOR_HOST: otel-collector
-    depends_on:
-      kafka:
-        condition: service_healthy
-      eureka-server:
-        condition: service_healthy
-    networks: [platform-net]
-    restart: on-failure
-
-  payment-service:
-    build: ./payment-service
-    container_name: payment-service
-    environment:
-      EUREKA_HOST: eureka-server
-      KAFKA_BOOTSTRAP: kafka:29092
-      OTEL_COLLECTOR_HOST: otel-collector
-    depends_on:
-      kafka:
-        condition: service_healthy
-      eureka-server:
-        condition: service_healthy
-    networks: [platform-net]
-    restart: on-failure
-
-  inventory-service:
-    build: ./inventory-service
-    container_name: inventory-service
-    environment:
-      EUREKA_HOST: eureka-server
-      OTEL_COLLECTOR_HOST: otel-collector
-    depends_on:
-      eureka-server:
-        condition: service_healthy
-    networks: [platform-net]
-    restart: on-failure
-
-  notification-service:
-    build: ./notification-service
-    container_name: notification-service
-    environment:
-      EUREKA_HOST: eureka-server
-      KAFKA_BOOTSTRAP: kafka:29092
-      OTEL_COLLECTOR_HOST: otel-collector
-    depends_on:
-      kafka:
-        condition: service_healthy
-    networks: [platform-net]
-    restart: on-failure
-
-  intelligence-service:
-    build: ./intelligence-service
-    container_name: intelligence-service
-    environment:
-      EUREKA_HOST: eureka-server
-      KAFKA_BOOTSTRAP: kafka:29092
-      PROMETHEUS_HOST: prometheus
-      JAEGER_HOST: jaeger
-      OTEL_COLLECTOR_HOST: otel-collector
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-your-key-here}
-    depends_on:
-      kafka:
-        condition: service_healthy
-      prometheus:
-        condition: service_started
-      jaeger:
-        condition: service_started
-    networks: [platform-net]
-    restart: on-failure

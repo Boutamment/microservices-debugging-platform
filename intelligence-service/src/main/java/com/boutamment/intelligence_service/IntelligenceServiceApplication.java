@@ -16,6 +16,7 @@ import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -23,6 +24,9 @@ import java.util.Map;
 @EnableKafka
 @SpringBootApplication
 public class IntelligenceServiceApplication {
+
+	@Value("${spring.kafka.bootstrap-servers:localhost:9092}")
+	private String kafkaBootstrapServers;
 
 	@Bean
 	public WebClient.Builder webClientBuilder() {
@@ -32,7 +36,7 @@ public class IntelligenceServiceApplication {
 	@Bean
 	public ProducerFactory<String, Object> producerFactory() {
 		Map<String, Object> config = new HashMap<>();
-		config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+		config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBootstrapServers);
 		config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
 		config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
 		return new DefaultKafkaProducerFactory<>(config);
@@ -46,7 +50,7 @@ public class IntelligenceServiceApplication {
 	@Bean
 	public ConsumerFactory<String, Object> consumerFactory() {
 		Map<String, Object> config = new HashMap<>();
-		config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+		config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBootstrapServers);
 		config.put(ConsumerConfig.GROUP_ID_CONFIG, "intelligence-group");
 		config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 		config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);

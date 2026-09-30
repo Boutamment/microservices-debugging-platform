@@ -22,7 +22,7 @@ processors:
 exporters:
   # Send traces to Jaeger
   otlp/jaeger:
-    endpoint: jaeger:14250
+    endpoint: jaeger:4317
     tls:
       insecure: true
 

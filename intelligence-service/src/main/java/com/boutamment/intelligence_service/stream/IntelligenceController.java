@@ -1,6 +1,7 @@
 package com.boutamment.intelligence_service.stream;
 
 import com.boutamment.intelligence_service.anomaly.AnomalyDetectionEngine.AnomalyEvent;
+import com.boutamment.intelligence_service.anomaly.AnomalyDetectionEngine.Severity;
 import com.boutamment.intelligence_service.explanation.ExplanationEngine.Explanation;
 import com.boutamment.intelligence_service.rca.RootCauseAnalysisEngine.RcaResult;
 import lombok.RequiredArgsConstructor;
@@ -11,15 +12,17 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @SpringBootApplication
@@ -50,6 +53,7 @@ class IntelligenceController {
     private final CopyOnWriteArrayList<AnomalyEvent>  recentAnomalies = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<RcaResult>     rcaResults      = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Explanation>   insights        = new CopyOnWriteArrayList<>();
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     // SSE sink for real-time dashboard streaming
     private final Sinks.Many<Object> eventSink = Sinks.many().multicast().onBackpressureBuffer();
@@ -79,6 +83,23 @@ class IntelligenceController {
     }
 
     // ── REST endpoints ─────────────────────────────────────────────────────────
+
+    @PostMapping("/simulate/anomaly")
+    public ResponseEntity<AnomalyEvent> simulateAnomaly(
+            @RequestParam(defaultValue = "order-service") String service) {
+        AnomalyEvent event = new AnomalyEvent(
+            UUID.randomUUID().toString(),
+            service,
+            "error_rate",
+            0.25,
+            0.01,
+            4.0,
+            Instant.now(),
+            Severity.HIGH
+        );
+        kafkaTemplate.send("anomaly-events", service, event);
+        return ResponseEntity.accepted().body(event);
+    }
 
     @GetMapping("/anomalies")
     public ResponseEntity<List<AnomalyEvent>> getAnomalies(

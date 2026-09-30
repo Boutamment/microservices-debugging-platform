@@ -30,6 +30,7 @@ public class UserService implements UserDetailsService {
         }
         User user = User.builder()
             .email(email)
+            .username(email)
             .password(passwordEncoder.encode(password))
             .role(role != null ? role : Role.USER)
             .build();

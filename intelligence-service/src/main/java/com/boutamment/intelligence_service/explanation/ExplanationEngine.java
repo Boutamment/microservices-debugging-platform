@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -29,6 +30,15 @@ public class ExplanationEngine {
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final ObjectMapper objectMapper;
 
+    @Value("${llm.api-key:}")
+    private String llmApiKey;
+
+    @Value("${llm.chat-completions-url:https://api.groq.com/openai/v1/chat/completions}")
+    private String llmChatCompletionsUrl;
+
+    @Value("${llm.model:llama-3.3-70b-versatile}")
+    private String llmModel;
+
     private static final String SYSTEM_PROMPT = """
         You are an expert Site Reliability Engineer analyzing distributed system failures.
         You receive structured Root Cause Analysis data and must produce:
@@ -47,10 +57,10 @@ public class ExplanationEngine {
 
         try {
             String userPrompt = buildPrompt(rcaResult);
-            String llmResponse = callOpenAi(userPrompt);
+            String llmResponse = callLlm(userPrompt);
 
             if (llmResponse == null || llmResponse.isBlank()) {
-                throw new IllegalStateException("OpenAI response was empty");
+                throw new IllegalStateException("LLM response was empty");
             }
 
             log.debug("LLM raw response: {}", llmResponse);
@@ -77,18 +87,14 @@ public class ExplanationEngine {
         }
     }
 
-    private String callOpenAi(String userPrompt) {
-        String apiKey = System.getenv("OPENAI_API_KEY");
-        if (apiKey == null || apiKey.isBlank()) {
-            log.warn("OPENAI_API_KEY is not configured; skipping LLM explanation generation");
+    private String callLlm(String userPrompt) {
+        if (llmApiKey == null || llmApiKey.isBlank()) {
+            log.warn("LLM API key is not configured; using fallback explanation");
             return null;
         }
 
-        String openAiUrl = System.getenv().getOrDefault("OPENAI_API_URL", "https://api.openai.com/v1/chat/completions");
-        String model = System.getenv().getOrDefault("OPENAI_MODEL", "gpt-4o-mini");
-
         Map<String, Object> request = Map.of(
-            "model", model,
+            "model", llmModel,
             "messages", List.of(
                 Map.of("role", "system", "content", SYSTEM_PROMPT),
                 Map.of("role", "user", "content", userPrompt)
@@ -98,8 +104,8 @@ public class ExplanationEngine {
 
         return webClientBuilder.build()
             .post()
-            .uri(openAiUrl)
-            .header("Authorization", "Bearer " + apiKey)
+            .uri(llmChatCompletionsUrl)
+            .header("Authorization", "Bearer " + llmApiKey)
             .header("Content-Type", "application/json")
             .bodyValue(request)
             .retrieve()
